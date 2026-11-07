@@ -1,0 +1,1 @@
+"""Chkobba Bot source package"""
