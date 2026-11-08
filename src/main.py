@@ -23,8 +23,15 @@ def active_wait(duration, adb, vision, memory, popup_flag):
                 )
                 if popup_data:
                     carte_adverse = [d["card"] for d in popup_data]
-                    print(f"👁️ POPUP DÉTECTÉ PENDANT L'ATTENTE ! {carte_adverse}")
-                    memory.ajouter_cartes(carte_adverse)
+                    # S'il y a plus d'1 carte dans le popup, c'est qu'il a mangé (koul)
+                    action_adverse = "koul" if len(carte_adverse) > 1 else "7ot"
+
+                    print(
+                        f"👁️ POPUP DÉTECTÉ PENDANT L'ATTENTE ! {carte_adverse} (Action: {action_adverse})"
+                    )
+                    memory.ajouter_cartes(
+                        carte_adverse, action_type=action_adverse, player="opponent"
+                    )
                     popup_flag = True
         time.sleep(0.1)  # Petite pause pour éviter de surcharger le CPU
     return popup_flag
@@ -33,13 +40,16 @@ def active_wait(duration, adb, vision, memory, popup_flag):
 class ChkobbaMemory:
     def __init__(self):
         self.cartes_sorties = []
+        self.my_score_pile = []
+        self.opponent_score_pile = []
 
-    def ajouter_cartes(self, cartes):
-        """Ajoute une ou plusieurs cartes à la mémoire en évitant les doublons."""
+    def ajouter_cartes(self, cartes, action_type="7ot", player=None):
+        """Ajoute une ou plusieurs cartes à la mémoire avec gestion de l'appartenance."""
         if not isinstance(cartes, (list, tuple)):
             cartes = [cartes]
 
         for c in cartes:
+            # 1. Ajout au tracker global (Card Counting)
             deja_presente = any(
                 exist_c.value == c.value and exist_c.suit == c.suit
                 for exist_c in self.cartes_sorties
@@ -47,15 +57,32 @@ class ChkobbaMemory:
             if not deja_presente:
                 self.cartes_sorties.append(c)
 
+            # 2. Ajout au tracker de score (Dynamic Reward Shaping)
+            if action_type == "koul" and player is not None:
+                target_pile = (
+                    self.my_score_pile if player == "me" else self.opponent_score_pile
+                )
+
+                # Vérifie qu'on n'ajoute pas la même carte physique 2 fois dans le score
+                deja_score = any(
+                    exist_c.value == c.value and exist_c.suit == c.suit
+                    for exist_c in target_pile
+                )
+                if not deja_score:
+                    target_pile.append(c)
+
         # Remise à zéro automatique à la fin de la manche (40 cartes)
         if len(self.cartes_sorties) >= 40:
             print(
                 "🔄 [MÉMOIRE] 40 cartes jouées ! Nouvelle manche détectée, remise à zéro."
             )
             self.cartes_sorties = []
+            self.my_score_pile = []
+            self.opponent_score_pile = []
 
     def get_game_state(self):
-        """Calcule l'état exact des 4 points de la Chkobba pour l'heuristique"""
+        """Calcule l'état exact global ET l'état des possessions pour l'heuristique"""
+        # État global du deck
         sab3a_7aya_out = any(
             c.value == 7 and c.suit == Suit.DINAR for c in self.cartes_sorties
         )
@@ -63,17 +90,33 @@ class ChkobbaMemory:
         sept_sortis = sum(1 for c in self.cartes_sorties if c.value == 7)
         six_sortis = sum(1 for c in self.cartes_sorties if c.value == 6)
 
+        # État des possessions (Score sécurisé)
+        my_sevens = sum(1 for c in self.my_score_pile if c.value == 7)
+        opp_sevens = sum(1 for c in self.opponent_score_pile if c.value == 7)
+
+        my_sixes = sum(1 for c in self.my_score_pile if c.value == 6)
+        opp_sixes = sum(1 for c in self.opponent_score_pile if c.value == 6)
+
+        my_dinars = sum(1 for c in self.my_score_pile if c.suit == Suit.DINAR)
+        opp_dinars = sum(1 for c in self.opponent_score_pile if c.suit == Suit.DINAR)
+
         return {
             "sab3a_7aya_out": sab3a_7aya_out,
             "dinars_restants": 10 - dinars_sortis,
             "sevens_restants": 4 - sept_sortis,
             "sixes_restants": 4 - six_sortis,
             "cartes_restantes": 40 - len(self.cartes_sorties),
+            "my_sevens": my_sevens,
+            "opp_sevens": opp_sevens,
+            "my_sixes": my_sixes,
+            "opp_sixes": opp_sixes,
+            "my_dinars": my_dinars,
+            "opp_dinars": opp_dinars,
         }
 
 
 def main():
-    print("🚀 Démarrage du Bot Chkobba Autonome (Version YOLO)...")
+    print("🚀 Démarrage du Bot Chkobba Autonome (Version Agentic AI)...")
     adb = ADBController(device_id="")  # Laissez vide s'il y a un seul appareil connecté
     vision = VisionDetector()
 
@@ -109,12 +152,15 @@ def main():
 
             if popup_data:
                 carte_adverse = [d["card"] for d in popup_data]
+                action_adverse = "koul" if len(carte_adverse) > 1 else "7ot"
                 print(
-                    f"👁️ POPUP DÉTECTÉ ! L'adversaire a joué/ramassé avec : {carte_adverse}"
+                    f"👁️ POPUP DÉTECTÉ ! L'adversaire a joué/ramassé avec : {carte_adverse} (Action: {action_adverse})"
                 )
 
-                # Ajout des cartes adverses à la mémoire
-                memory.ajouter_cartes(carte_adverse)
+                # Ajout des cartes adverses à la mémoire et à son score si besoin
+                memory.ajouter_cartes(
+                    carte_adverse, action_type=action_adverse, player="opponent"
+                )
                 popup_deja_lu_ce_tour = True
 
         # ---------------------------------------------------------
@@ -139,10 +185,11 @@ def main():
         print(f"Cartes en main: {my_hand}")
         print(f"Cartes sur table: {table_cards}")
 
-        # Optionnel: Afficher l'état d'avancement pour le debug
+        # Afficher l'état d'avancement pour le debug avec les nouveaux scores
         state = memory.get_game_state()
         print(
-            f"📊 État Partie -> Sab3a 7aya out: {state['sab3a_7aya_out']}, Dinars restants: {state['dinars_restants']}, 7 restants: {state['sevens_restants']}"
+            f"📊 État Partie -> 7_Restants: {state['sevens_restants']} (Moi:{state['my_sevens']} | Adv:{state['opp_sevens']}) - "
+            f"Dinars_Restants: {state['dinars_restants']} (Moi:{state['my_dinars']} | Adv:{state['opp_dinars']})"
         )
 
         if not my_hand:
@@ -159,7 +206,7 @@ def main():
             table_cards,
             RulesEngine.get_valid_combinations,
             memory.cartes_sorties,
-            game_state=memory.get_game_state(),
+            game_state=state,
         )
 
         if not best_move:
@@ -178,7 +225,7 @@ def main():
             adb.action_7ot(
                 card_xy["x"], card_xy["y"], GameConfig.BTN_7OT_X, GameConfig.BTN_7OT_Y
             )
-            memory.ajouter_cartes(played_card_obj)
+            memory.ajouter_cartes(played_card_obj, action_type="7ot", player="me")
 
         elif action == "koul":
             eaten_cards_obj = best_move["eat_cards"]
@@ -195,7 +242,12 @@ def main():
                 GameConfig.BTN_KOUL_X,
                 GameConfig.BTN_KOUL_Y,
             )
-            memory.ajouter_cartes([played_card_obj] + list(eaten_cards_obj))
+            # On enregistre la carte jouée + les cartes mangées dans notre score
+            memory.ajouter_cartes(
+                [played_card_obj] + list(eaten_cards_obj),
+                action_type="koul",
+                player="me",
+            )
 
         print("✅ Coup joué. Attente de la transition du jeu...")
 
