@@ -9,10 +9,25 @@ class DecisionMaker:
         eaten_cards: Tuple[Card, ...], 
         table_size: int, 
         my_hand: List[Card],
-        memory_cartes_sorties: Optional[List[Card]] = None
+        memory_cartes_sorties: Optional[List[Card]] = None,
+        game_state: Optional[Dict] = None
     ) -> int:
         """ Calcule l'intérêt mathématique d'un coup. """
         score = 0
+        
+        # Initialisation par défaut si game_state n'est pas fourni
+        sab3a_7aya_out = False
+        dinars_restants = 10
+        sevens_restants = 4
+        sixes_restants = 4
+        cartes_restantes = 40
+
+        if game_state:
+            sab3a_7aya_out = game_state.get("sab3a_7aya_out", False)
+            dinars_restants = game_state.get("dinars_restants", 10)
+            sevens_restants = game_state.get("sevens_restants", 4)
+            sixes_restants = game_state.get("sixes_restants", 4)
+            cartes_restantes = game_state.get("cartes_restantes", 40)
         
         if action_type == "koul":
             all_involved_cards = list(eaten_cards) + [play_card]
@@ -24,21 +39,32 @@ class DecisionMaker:
                     score += 500
                 # Bermila : Les 7 sont très importants
                 elif card.value == 7:
-                    score += 100
+                    # Plus il reste de 7, plus c'est important de les prendre
+                    score += 100 + (sevens_restants * 10)
                 # Bermila (Tie-breakers) : Les 6
                 elif card.value == 6:
-                    score += 50
+                    # Si les 7 sont tous sortis, les 6 deviennent cruciaux pour départager
+                    if sevens_restants == 0:
+                        score += 80
+                    else:
+                        score += 50
                 
                 # Dinari : Chaque carte de Dinar rapporte des points
                 if card.suit == Suit.DINAR and card.value != 7:
-                    score += 30
+                    # Si le point du Dinari est encore très disputé, augmenter la valeur
+                    if dinars_restants > 2:
+                        score += 40
+                    else:
+                        score += 30
                     
                 # Karta : Volume de cartes (10 points par carte)
                 score += 10
                 
             # 2. Vérification de la Chkobba
             if len(eaten_cards) == table_size:
-                score += 1000
+                # Chkobba n'est pas possible au tout dernier tour
+                if cartes_restantes > 0:
+                    score += 1000
                 
         elif action_type == "7ot":
             # Pénalités si on jette des cartes précieuses
@@ -74,7 +100,14 @@ class DecisionMaker:
         return score
 
     @classmethod
-    def get_best_move(cls, hand: List[Card], table: List[Card], get_combinations_func, memory_cartes_sorties: Optional[List[Card]] = None) -> Dict:
+    def get_best_move(
+        cls, 
+        hand: List[Card], 
+        table: List[Card], 
+        get_combinations_func, 
+        memory_cartes_sorties: Optional[List[Card]] = None,
+        game_state: Optional[Dict] = None
+    ) -> Dict:
         """
         Teste toutes les cartes en main et retourne la meilleure action à faire.
         Format : {"action": "koul" ou "7ot", "play_card": Card, "eat_cards": Tuple}
@@ -88,13 +121,13 @@ class DecisionMaker:
             
             if combos:
                 for combo in combos:
-                    score = cls.evaluate_move("koul", my_card, combo, len(table), hand, memory_cartes_sorties)
+                    score = cls.evaluate_move("koul", my_card, combo, len(table), hand, memory_cartes_sorties, game_state)
                     if score > best_score:
                         best_score = score
                         best_move = {"action": "koul", "play_card": my_card, "eat_cards": combo}
             else:
                 # 2. Si on ne peut rien manger avec cette carte, il faut la jeter
-                score = cls.evaluate_move("7ot", my_card, (), len(table), hand, memory_cartes_sorties)
+                score = cls.evaluate_move("7ot", my_card, (), len(table), hand, memory_cartes_sorties, game_state)
                 if score > best_score:
                     best_score = score
                     best_move = {"action": "7ot", "play_card": my_card, "eat_cards": ()}
