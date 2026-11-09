@@ -99,4 +99,4 @@ You can adjust the bot's behavior in the `GameConfig` class:
 This project was built strictly for **educational purposes** to explore Computer Vision, State-Aware AI, and RPA pipelines on mobile interfaces. Please respect the terms of service of the games you play.
 
 ## 🤝 Contributing
-Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](https://github.com/yourusername/chkobba-ai-bot/issues).
+Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](https://github.com/AlaMadani/Chkobba_Agent/issues).
